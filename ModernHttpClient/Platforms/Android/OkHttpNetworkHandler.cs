@@ -1,4 +1,5 @@
 using Java.IO;
+using Java.Net;
 using Java.Util.Concurrent;
 using Javax.Net.Ssl;
 using Square.OkHttp3;
@@ -38,10 +39,23 @@ namespace ModernHttpClient
         public static IX509TrustManager customTrustManager;
 
         public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null)
+            : this(throwOnCaptiveNetwork, customSSLVerification, null, cookieHandler)
+        {
+        }
+
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, WebProxy proxy, NativeCookieHandler cookieHandler = null)
         {
             this.throwOnCaptiveNetwork = throwOnCaptiveNetwork;
 
             var clientBuilder = client.NewBuilder();
+            if (proxy != null)
+            {
+                var host = proxy.Address.Host;
+                var port = proxy.Address.Port;
+                var socketAddress = new InetSocketAddress(host, port);
+                var javaProxy = new Proxy(Java.Net.Proxy.Type.Http, socketAddress);
+                clientBuilder.Proxy(javaProxy);
+            }
 
             /*if (customSSLVerification)
             {
