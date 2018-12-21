@@ -42,6 +42,10 @@ namespace ModernHttpClient
         {
         }
 
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, WebProxy proxy, NativeCookieHandler cookieHandler = null) : base()
+        {
+        }
+
         public TimeSpan? Timeout
         {
             get { throw new Exception (wrongVersion); }

@@ -15,6 +15,9 @@ using ModernHttpClient.Foundation;
 using Foundation;
 using Security;
 using System.Text;
+using CoreFoundation;
+using CFNetworkErrors = ModernHttpClient.CoreFoundation.CFNetworkErrors;
+using System.ComponentModel;
 
 /*
 
@@ -34,7 +37,7 @@ using System.Text;
 
 namespace ModernHttpClient
 {
-    class InflightOperation
+    public class InflightOperation
     {
         public HttpRequestMessage Request { get; set; }
         public TaskCompletionSource<HttpResponseMessage> FutureResponse { get; set; }
@@ -43,6 +46,8 @@ namespace ModernHttpClient
         public CancellationToken CancellationToken { get; set; }
         public bool IsCompleted { get; set; }
     }
+
+    public delegate HttpRequestMessage HttpRedirectionHandler(HttpResponseMessage response, HttpRequestMessage redirectionRequest);
 
     public class NativeMessageHandler : HttpClientHandler
     {
@@ -54,7 +59,7 @@ namespace ModernHttpClient
         readonly Dictionary<HttpRequestMessage, ProgressDelegate> registeredProgressCallbacks =
             new Dictionary<HttpRequestMessage, ProgressDelegate>();
 
-        readonly Dictionary<string, string> headerSeparators =
+        static readonly Dictionary<string, string> headerSeparators =
             new Dictionary<string, string>(){
                 {"User-Agent", " "}
             };
@@ -66,34 +71,140 @@ namespace ModernHttpClient
         public TimeSpan? Timeout { get; set; }
         public bool EnableUntrustedCertificates { get; set; }
 
-        public NativeMessageHandler() : this(false, false) {}
+        public NativeMessageHandler() : this(false, false) { }
+
+        public HttpRedirectionHandler HttpRedirector { get; protected set; }
 
         public static SslProtocol? minimumSSLProtocol;
 
-        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null)
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, HttpRedirectionHandler httpRedirector = null, WebProxy proxy = null)
         {
+            HttpRedirector = httpRedirector;
+
             var configuration = NSUrlSessionConfiguration.DefaultSessionConfiguration;
 
-            // System.Net.ServicePointManager.SecurityProtocol provides a mechanism for specifying supported protocol types
-            // for System.Net. Since iOS only provides an API for a minimum and maximum protocol we are not able to port
-            // this configuration directly and instead use the specified minimum value when one is specified.
+            if (proxy != null)
+            {
+                NSObject[] values =
+                {
+                    NSObject.FromObject(proxy.Address.Host),
+                    NSNumber.FromInt32 (proxy.Address.Port),
+                    NSNumber.FromInt32 (1)
+                };
+
+                NSObject[] keys =
+                {
+                    NSObject.FromObject("HTTPProxy"),
+                    NSObject.FromObject("HTTPPort"),
+                    NSObject.FromObject("HTTPEnable")
+                };
+
+
+                NSDictionary proxyDict = NSDictionary.FromObjectsAndKeys(values, keys);
+                configuration.ConnectionProxyDictionary = proxyDict;
+            }
+
             if (minimumSSLProtocol.HasValue)
             {
                 configuration.TLSMinimumSupportedProtocol = minimumSSLProtocol.Value;
             }
 
+
             var urlSessionDelegate = new DataTaskDelegate(this);
-            session = NSUrlSession.FromConfiguration(NSUrlSessionConfiguration.DefaultSessionConfiguration, (INSUrlSessionDelegate)urlSessionDelegate, null);
+            session = NSUrlSession.FromConfiguration(configuration, (INSUrlSessionDelegate)urlSessionDelegate, null);
 
             this.throwOnCaptiveNetwork = throwOnCaptiveNetwork;
             this.customSSLVerification = customSSLVerification;
 
-            // NSUrlSessionConfiguration.DefaultSessionConfiguration uses the default NSHttpCookieStorage.SharedStorage
-
-            this.DisableCaching = false;
+            DisableCaching = true;
         }
 
-        string getHeaderSeparator(string name)
+        public static async Task<NSMutableUrlRequest> CreateNativeUrlRequest(HttpRequestMessage request, bool isDisableCaching, TimeSpan? timeout)
+        {
+            var headers = request.Headers as IEnumerable<KeyValuePair<string, IEnumerable<string>>>;
+            var ms = new MemoryStream();
+
+            if (request.Content != null)
+            {
+                await request.Content.CopyToAsync(ms).ConfigureAwait(false);
+                headers = headers.Union(request.Content.Headers).ToArray();
+            }
+
+            var result = new NSMutableUrlRequest
+            {
+                AllowsCellularAccess = true,
+                Body = NSData.FromArray(ms.ToArray()),
+                CachePolicy = isDisableCaching ? NSUrlRequestCachePolicy.ReloadIgnoringCacheData : NSUrlRequestCachePolicy.UseProtocolCachePolicy,
+                Headers = headers.Aggregate(new NSMutableDictionary(), (acc, x) =>
+                {
+                    if (x.Key != "Cookie")
+                    {
+                        acc.Add(new NSString(x.Key), new NSString(String.Join(GetHeaderSeparator(x.Key), x.Value)));
+                    }
+
+                    return acc;
+                }),
+                HttpMethod = request.Method.ToString().ToUpperInvariant(),
+                Url = NSUrl.FromString(request.RequestUri.AbsoluteUri),
+            };
+
+            if (timeout != null)
+                result.TimeoutInterval = timeout.Value.Seconds;
+
+            return result;
+        }
+
+        public static HttpRequestMessage CreateCoreRequest(NSUrlRequest request)
+        {
+            var rq = new HttpRequestMessage(new HttpMethod(request.HttpMethod), request.Url.AbsoluteUrl);
+
+            foreach (var header in request.Headers)
+            {
+                rq.Headers.TryAddWithoutValidation(header.Key.ToString(), header.Value.ToString());
+            }
+
+            return rq;
+        }
+
+        public static HttpResponseMessage CreateCoreResponse(NSUrlResponse response, NSUrlSessionTask dataTask, InflightOperation data)
+        {
+            var resp = (NSHttpUrlResponse)response;
+            var req = data.Request;
+
+            var content = new CancellableStreamContent(data.ResponseBody, () =>
+            {
+                if (!data.IsCompleted)
+                {
+                    dataTask.Cancel();
+                }
+                data.IsCompleted = true;
+
+                data.ResponseBody.SetException(new OperationCanceledException());
+            })
+            {
+                Progress = data.Progress
+            };
+
+            int status = (int)resp.StatusCode;
+            var ret = new HttpResponseMessage((HttpStatusCode)status)
+            {
+                Content = content,
+                RequestMessage = data.Request,
+            };
+            ret.RequestMessage.RequestUri = new Uri(resp.Url.AbsoluteString);
+
+            foreach (var v in resp.AllHeaderFields)
+            {
+                if (v.Key == null || v.Value == null) continue;
+
+                ret.Headers.TryAddWithoutValidation(v.Key.ToString(), v.Value.ToString());
+                ret.Content.Headers.TryAddWithoutValidation(v.Key.ToString(), v.Value.ToString());
+            }
+
+            return ret;
+        }
+
+        private static string GetHeaderSeparator(string name)
         {
             if (headerSeparators.ContainsKey(name))
             {
@@ -139,17 +250,6 @@ namespace ModernHttpClient
                 headers = headers.Union(request.Content.Headers).ToArray();
             }
 
-            // Add Cookie Header if any cookie for the domain in the cookie store
-            var stringBuilder = new StringBuilder();
-
-            var cookies = NSHttpCookieStorage.SharedStorage.Cookies
-                                             .Where(c => c.Domain == request.RequestUri.Host)
-                                             .ToList();
-            foreach (var cookie in cookies)
-            {
-                stringBuilder.Append(cookie.Name + "=" + cookie.Value + ";");
-            }
-
             var rq = new NSMutableUrlRequest()
             {
                 AllowsCellularAccess = true,
@@ -157,14 +257,9 @@ namespace ModernHttpClient
                 CachePolicy = (!this.DisableCaching ? NSUrlRequestCachePolicy.UseProtocolCachePolicy : NSUrlRequestCachePolicy.ReloadIgnoringCacheData),
                 Headers = headers.Aggregate(new NSMutableDictionary(), (acc, x) => {
 
-                    if (x.Key == "Cookie")
+                    if (x.Key != "Cookie")
                     {
-                        foreach (var val in x.Value)
-                            stringBuilder.Append(val + ";");
-                    }
-                    else
-                    {
-                        acc.Add(new NSString(x.Key), new NSString(String.Join(getHeaderSeparator(x.Key), x.Value)));
+                        acc.Add(new NSString(x.Key), new NSString(String.Join(GetHeaderSeparator(x.Key), x.Value)));
                     }
 
                     return acc;
@@ -172,13 +267,6 @@ namespace ModernHttpClient
                 HttpMethod = request.Method.ToString().ToUpperInvariant(),
                 Url = NSUrl.FromString(request.RequestUri.AbsoluteUri),
             };
-
-            if (stringBuilder.Length > 0)
-            {
-                var copy = new NSMutableDictionary(rq.Headers);
-                copy.Add(new NSString("Cookie"), new NSString(stringBuilder.ToString().TrimEnd(';')));
-                rq.Headers = copy;
-            }
 
             if (Timeout != null)
                 rq.TimeoutInterval = Timeout.Value.Seconds;
@@ -203,6 +291,8 @@ namespace ModernHttpClient
             }
 
             op.Resume();
+            return await ret.Task.ConfigureAwait(false);
+
             return await ret.Task.ConfigureAwait(false);
         }
 
@@ -234,7 +324,8 @@ namespace ModernHttpClient
                         throw new CaptiveNetworkException(req.RequestUri, new Uri(resp.Url.ToString()));
                     }
 
-                    var content = new CancellableStreamContent(data.ResponseBody, () => {
+                    var content = new CancellableStreamContent(data.ResponseBody, () =>
+                    {
                         if (!data.IsCompleted)
                         {
                             dataTask.Cancel();
@@ -242,9 +333,10 @@ namespace ModernHttpClient
                         data.IsCompleted = true;
 
                         data.ResponseBody.SetException(new OperationCanceledException());
-                    });
-
-                    content.Progress = data.Progress;
+                    })
+                    {
+                        Progress = data.Progress
+                    };
 
                     // NB: The double cast is because of a Xamarin compiler bug
                     int status = (int)resp.StatusCode;
@@ -416,7 +508,7 @@ namespace ModernHttpClient
                     goto sslErrorVerify;
                 }
 
-            sslErrorVerify:
+                sslErrorVerify:
                 var hostname = task.CurrentRequest.Url.Host;
                 bool result = ServicePointManager.ServerCertificateValidationCallback(hostname, root, chain, errors);
                 if (result)
@@ -429,7 +521,7 @@ namespace ModernHttpClient
                 }
                 return;
 
-            doDefault:
+                doDefault:
                 // Support self-signed certificates
                 if (This.EnableUntrustedCertificates)
                     completionHandler(NSUrlSessionAuthChallengeDisposition.UseCredential, NSUrlCredential.FromTrust(challenge.ProtectionSpace.ServerSecTrust));
@@ -438,9 +530,69 @@ namespace ModernHttpClient
                 return;
             }
 
-            public override void WillPerformHttpRedirection(NSUrlSession session, NSUrlSessionTask task, NSHttpUrlResponse response, NSUrlRequest newRequest, Action<NSUrlRequest> completionHandler)
+            private HttpResponseMessage ReverseNativeResponse(NSHttpUrlResponse response, NSUrlSessionTask task)
             {
-                NSUrlRequest nextRequest = (This.AllowAutoRedirect ? newRequest : null);
+                var data = getResponseForTask(task);
+
+                var resp = (NSHttpUrlResponse)response;
+                var req = data.Request;
+
+                if (This.throwOnCaptiveNetwork && req.RequestUri.Host != resp.Url.Host)
+                {
+                    throw new CaptiveNetworkException(req.RequestUri, new Uri(resp.Url.ToString()));
+                }
+
+                var content = new CancellableStreamContent(data.ResponseBody, () =>
+                {
+                    if (!data.IsCompleted)
+                    {
+                        task.Cancel();
+                    }
+                    data.IsCompleted = true;
+
+                    data.ResponseBody.SetException(new OperationCanceledException());
+                })
+                {
+                    Progress = data.Progress
+                };
+
+                // NB: The double cast is because of a Xamarin compiler bug
+                int status = (int)resp.StatusCode;
+                var ret = new HttpResponseMessage((HttpStatusCode)status)
+                {
+                    Content = content,
+                    RequestMessage = data.Request,
+                };
+                ret.RequestMessage.RequestUri = new Uri(resp.Url.AbsoluteString);
+
+                foreach (var v in resp.AllHeaderFields)
+                {
+                    // NB: Cocoa trolling us so hard by giving us back dummy
+                    // dictionary entries
+                    if (v.Key == null || v.Value == null) continue;
+
+                    ret.Headers.TryAddWithoutValidation(v.Key.ToString(), v.Value.ToString());
+                    ret.Content.Headers.TryAddWithoutValidation(v.Key.ToString(), v.Value.ToString());
+                }
+
+                return ret;
+            }
+
+            public async override void WillPerformHttpRedirection(NSUrlSession session, NSUrlSessionTask task, NSHttpUrlResponse response, NSUrlRequest newRequest, Action<NSUrlRequest> completionHandler)
+            {
+                var nextRequest = This.AllowAutoRedirect ? newRequest : null;
+
+                if (nextRequest != null)
+                {
+
+                    if (nextRequest.Url.Scheme.Equals("https"))
+                    {
+                        var strUri = $"http://{nextRequest.Url.Host}:443{nextRequest.Url.Path}?{nextRequest.Url.Query}";
+                        var request = new NSMutableUrlRequest(new NSUrl(strUri));
+                        nextRequest = request;
+                    }
+                }
+
                 completionHandler(nextRequest);
             }
 
@@ -662,7 +814,7 @@ namespace ModernHttpClient
                     goto done;
                 }
 
-            done:
+                done:
 
                 // Always create a WebException so that it can be handled by the client.
                 ret = new WebException(error.LocalizedDescription, innerException, webExceptionStatus, response: null);
@@ -671,7 +823,7 @@ namespace ModernHttpClient
         }
     }
 
-    class ByteArrayListStream : Stream
+    public class ByteArrayListStream : Stream
     {
         Exception exception;
         IDisposable lockRelease;
