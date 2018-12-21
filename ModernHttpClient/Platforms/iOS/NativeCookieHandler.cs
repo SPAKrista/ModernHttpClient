@@ -29,16 +29,26 @@ namespace ModernHttpClient
 
         public void DeleteCookie(Cookie cookie)
         {
-            var nc = ToNativeCookie(cookie);
-            NSHttpCookieStorage.SharedStorage.DeleteCookie(nc);
+            var nc = FindNativeCookie(cookie);
+            if (nc != null)
+            {
+                NSHttpCookieStorage.SharedStorage.DeleteCookie(nc);
+            }
         }
 
-        public List<Cookie> Cookies {
-            get {
+        public List<Cookie> Cookies
+        {
+            get
+            {
                 return NSHttpCookieStorage.SharedStorage.Cookies
                     .Select(ToNetCookie)
                     .ToList();
             }
+        }
+
+        static NSHttpCookie FindNativeCookie(Cookie cookie)
+        {
+            return NSHttpCookieStorage.SharedStorage.Cookies.FirstOrDefault(c => c.Name.Equals(cookie.Name) && c.Value.Equals(cookie.Value) && c.Path.Equals(cookie.Path) && c.Domain.Equals(cookie.Domain));
         }
 
         static NSHttpCookie ToNativeCookie(Cookie cookie)
