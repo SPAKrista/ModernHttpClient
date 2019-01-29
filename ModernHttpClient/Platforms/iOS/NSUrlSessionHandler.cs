@@ -435,10 +435,18 @@ namespace ModernHttpClient
                             var uri = this.getResponseForTask(task).Request.RequestUri;
                             credentialsToUse = This.Credentials.GetCredential(uri, "NTLM");
                         }
+
                         var credential = new NSUrlCredential(credentialsToUse.UserName, credentialsToUse.Password, NSUrlCredentialPersistence.ForSession);
                         completionHandler(NSUrlSessionAuthChallengeDisposition.UseCredential, credential);
+
+                        return;
                     }
-                    return;
+                    else
+                    {
+                        completionHandler(NSUrlSessionAuthChallengeDisposition.RejectProtectionSpace, null);
+
+                        return;
+                    }
                 }
 
                 if (!This.customSSLVerification)
