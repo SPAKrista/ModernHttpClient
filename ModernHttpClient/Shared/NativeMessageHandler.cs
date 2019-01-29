@@ -42,6 +42,10 @@ namespace ModernHttpClient
         {
         }
 
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, HttpRedirectionHandler httpRedirector = null, WebProxy proxy = null) : base()
+        {
+        }
+
         public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, WebProxy proxy, NativeCookieHandler cookieHandler = null) : base()
         {
         }
