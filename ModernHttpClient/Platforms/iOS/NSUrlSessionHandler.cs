@@ -47,8 +47,6 @@ namespace ModernHttpClient
         public bool IsCompleted { get; set; }
     }
 
-    public delegate HttpRequestMessage HttpRedirectionHandler(HttpResponseMessage response, HttpRequestMessage redirectionRequest);
-
     public class NativeMessageHandler : HttpClientHandler
     {
         readonly NSUrlSession session;
@@ -69,18 +67,15 @@ namespace ModernHttpClient
 
         public bool DisableCaching { get; set; }
         public TimeSpan? Timeout { get; set; }
+        public bool ConvertHttpsToHttp { get; set; }
         public bool EnableUntrustedCertificates { get; set; }
 
         public NativeMessageHandler() : this(false, false) { }
 
-        public HttpRedirectionHandler HttpRedirector { get; protected set; }
-
         public static SslProtocol? minimumSSLProtocol;
 
-        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, HttpRedirectionHandler httpRedirector = null, WebProxy proxy = null)
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, WebProxy proxy = null)
         {
-            HttpRedirector = httpRedirector;
-
             var configuration = NSUrlSessionConfiguration.DefaultSessionConfiguration;
 
             if (proxy != null)
@@ -593,7 +588,7 @@ namespace ModernHttpClient
                 if (nextRequest != null)
                 {
 
-                    if (nextRequest.Url.Scheme.Equals("https"))
+                    if (nextRequest.Url.Scheme.Equals("https") && This.ConvertHttpsToHttp)
                     {
                         var strUri = $"http://{nextRequest.Url.Host}:443{nextRequest.Url.Path}?{nextRequest.Url.Query}";
                         var request = new NSMutableUrlRequest(new NSUrl(strUri));

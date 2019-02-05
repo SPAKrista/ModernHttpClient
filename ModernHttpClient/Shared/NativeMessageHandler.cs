@@ -7,8 +7,7 @@ using System.IO;
 using System.Net;
 
 namespace ModernHttpClient
-{
-    //public delegate void ProgressDelegate(long bytes, long totalBytes, long totalBytesExpected);
+{    //public delegate void ProgressDelegate(long bytes, long totalBytes, long totalBytesExpected);
 
     public class NativeMessageHandler : HttpClientHandler
     {
@@ -42,7 +41,7 @@ namespace ModernHttpClient
         {
         }
 
-        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, HttpRedirectionHandler httpRedirector = null, WebProxy proxy = null) : base()
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, WebProxy proxy = null) : base()
         {
         }
 
@@ -57,6 +56,12 @@ namespace ModernHttpClient
         }
 
         public bool EnableUntrustedCertificates { get; set; }
+
+        public bool ConvertHttpsToHttp
+        {
+            get { throw new Exception(wrongVersion); }
+            set { throw new Exception(wrongVersion); }
+        }
 
         public void RegisterForProgress(HttpRequestMessage request, ProgressDelegate callback)
         {
