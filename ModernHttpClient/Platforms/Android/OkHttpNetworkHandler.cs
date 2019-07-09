@@ -31,19 +31,15 @@ namespace ModernHttpClient
 
         public bool DisableCaching { get; set; }
         public TimeSpan? Timeout { get; set; }
+        public bool ConvertHttpsToHttp { get; set; }
         public bool EnableUntrustedCertificates { get; set; }
 
-        public NativeMessageHandler() : this(false, false) {}
+        public NativeMessageHandler() : this(false, false) { }
 
         public static Func<string, ISSLSession, bool> verifyHostnameCallback;
         public static IX509TrustManager customTrustManager;
 
-        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null)
-            : this(throwOnCaptiveNetwork, customSSLVerification, null, cookieHandler)
-        {
-        }
-
-        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, WebProxy proxy, NativeCookieHandler cookieHandler = null)
+        public NativeMessageHandler(bool throwOnCaptiveNetwork, bool customSSLVerification, NativeCookieHandler cookieHandler = null, WebProxy proxy = null)
         {
             this.throwOnCaptiveNetwork = throwOnCaptiveNetwork;
 
@@ -77,7 +73,8 @@ namespace ModernHttpClient
                 : verifyHostnameCallback);
             }
 
-            if (cookieHandler != null) {
+            if (cookieHandler != null)
+            {
                 clientBuilder.CookieJar(cookieHandler);
             }
 
@@ -187,7 +184,7 @@ namespace ModernHttpClient
                 .Union(request.Content != null ?
                     (IEnumerable<KeyValuePair<string, IEnumerable<string>>>)request.Content.Headers :
                     Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>());
-            
+
             // Add Cookie Header if there's any cookie for the domain in the cookie jar
             var stringBuilder = new StringBuilder();
 
@@ -200,7 +197,7 @@ namespace ModernHttpClient
                     stringBuilder.Append(cookie.Name() + "=" + cookie.Value() + ";");
                 }
             }
-                
+
             foreach (var kvp in keyValuePairs)
             {
                 if (kvp.Key == "Cookie")
@@ -411,7 +408,7 @@ namespace ModernHttpClient
                 goto bail;
             }
 
-        bail:
+            bail:
             // Call the delegate to validate
             return ServicePointManager.ServerCertificateValidationCallback(hostname, root, chain, errors);
         }
