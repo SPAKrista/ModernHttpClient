@@ -21,12 +21,15 @@ namespace ModernHttpClient
         IEnumerator<Stream> iterator;
 
         Stream current;
-        Stream Current {
-            get {
+        Stream Current
+        {
+            get
+            {
                 if (current != null) return current;
                 if (iterator == null) throw new ObjectDisposedException(GetType().Name);
 
-                if (iterator.MoveNext()) {
+                if (iterator.MoveNext())
+                {
                     current = iterator.Current;
                 }
 
@@ -55,29 +58,35 @@ namespace ModernHttpClient
         public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
 
         public override void Flush() { }
-        public override long Length {
+        public override long Length
+        {
             get { throw new NotSupportedException(); }
         }
 
-        public override long Position {
+        public override long Position
+        {
             get { return position; }
             set { if (value != this.position) throw new NotSupportedException(); }
         }
 
-        public override async Task<int> ReadAsync (byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             int result = 0;
 
-            if (blockUntil != null) {
-                await blockUntil.ContinueWith(_ => {}, cancellationToken);
+            if (blockUntil != null)
+            {
+                await blockUntil.ContinueWith(_ => { }, cancellationToken);
             }
 
-            while (count > 0) {
-                if (cancellationToken.IsCancellationRequested) {
+            while (count > 0)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
                     throw new OperationCanceledException();
                 }
 
-                if (cts.IsCancellationRequested) {
+                if (cts.IsCancellationRequested)
+                {
                     throw new OperationCanceledException();
                 }
 
@@ -92,12 +101,14 @@ namespace ModernHttpClient
                 offset += thisCount;
                 if (thisCount == 0) EndOfStream();
             }
-                            
-            if (cancellationToken.IsCancellationRequested) {
+
+            if (cancellationToken.IsCancellationRequested)
+            {
                 throw new OperationCanceledException();
             }
-                            
-            if (cts.IsCancellationRequested) {
+
+            if (cts.IsCancellationRequested)
+            {
                 throw new OperationCanceledException();
             }
 
@@ -105,7 +116,7 @@ namespace ModernHttpClient
             return result;
         }
 
-        public override int Read (byte[] buffer, int offset, int count)
+        public override int Read(byte[] buffer, int offset, int count)
         {
             return readInternal(buffer, offset, count);
         }
@@ -114,16 +125,20 @@ namespace ModernHttpClient
         {
             int result = 0;
 
-            if (blockUntil != null) {
+            if (blockUntil != null)
+            {
                 blockUntil.Wait(cts.Token);
             }
 
-            while (count > 0) {
-                if (ct.IsCancellationRequested) {
+            while (count > 0)
+            {
+                if (ct.IsCancellationRequested)
+                {
                     throw new OperationCanceledException();
                 }
 
-                if (cts.IsCancellationRequested) {
+                if (cts.IsCancellationRequested)
+                {
                     throw new OperationCanceledException();
                 }
 
@@ -145,14 +160,17 @@ namespace ModernHttpClient
 
         protected override void Dispose(bool disposing)
         {
-            if (Interlocked.CompareExchange(ref isEnding, 1, 0) == 1) {
+            if (Interlocked.CompareExchange(ref isEnding, 1, 0) == 1)
+            {
                 return;
             }
 
-            if (disposing) {
+            if (disposing)
+            {
                 cts.Cancel();
 
-                while (Current != null) {
+                while (Current != null)
+                {
                     EndOfStream();
                 }
 
@@ -166,9 +184,10 @@ namespace ModernHttpClient
             base.Dispose(disposing);
         }
 
-        void EndOfStream() 
+        void EndOfStream()
         {
-            if (closeStreams && current != null) {
+            if (closeStreams && current != null)
+            {
                 current.Close();
                 current.Dispose();
             }

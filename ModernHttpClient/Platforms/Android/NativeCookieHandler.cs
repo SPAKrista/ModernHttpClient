@@ -11,12 +11,13 @@ namespace ModernHttpClient
 
         public NativeCookieHandler()
         {
-           CookieHandler.Default = this; //cookieManager; //set cookie manager if using NativeCookieHandler
+            CookieHandler.Default = this; //cookieManager; //set cookie manager if using NativeCookieHandler
         }
 
         public void SetCookies(IEnumerable<Cookie> cookies)
         {
-            foreach (var nc in cookies.Select(ToNativeCookie)) {
+            foreach (var nc in cookies.Select(ToNativeCookie))
+            {
                 //cookieManager.CookieStore.Add(new URI(nc.Domain), nc);
                 CookieStore.Add(new URI(nc.Domain), nc);
             }
@@ -41,9 +42,11 @@ namespace ModernHttpClient
             //cookieManager.CookieStore.Remove(new URI(nc.Domain), nc);
             CookieStore.Remove(new URI(nc.Domain), nc);
         }
-            
-        public List<Cookie> Cookies {
-            get {
+
+        public List<Cookie> Cookies
+        {
+            get
+            {
                 //return cookieManager.CookieStore.Cookies
                 return CookieStore.Cookies
                     .Select(ToNetCookie)
@@ -74,7 +77,7 @@ namespace ModernHttpClient
             var cookies = new List<Square.OkHttp3.Cookie>();
 
             var nc = CookieStore.Get(p0.Uri());
-            foreach(var cookie in nc)
+            foreach (var cookie in nc)
             {
                 var builder = new Square.OkHttp3.Cookie.Builder();
                 builder.Name(cookie.Name)
@@ -83,7 +86,7 @@ namespace ModernHttpClient
                        .Path(cookie.Path);
                 if (cookie.Secure)
                     builder.Secure();
-                
+
                 cookies.Add(builder.Build());
             }
 
@@ -92,7 +95,7 @@ namespace ModernHttpClient
 
         public void SaveFromResponse(Square.OkHttp3.HttpUrl p0, IList<Square.OkHttp3.Cookie> p1)
         {
-            foreach(var cookie in p1)
+            foreach (var cookie in p1)
             {
                 var nc = new HttpCookie(cookie.Name(), cookie.Value());
                 nc.Domain = cookie.Domain();
